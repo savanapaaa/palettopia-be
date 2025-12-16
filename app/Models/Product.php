@@ -9,7 +9,22 @@ class Product extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['user_id','name','image_url','palette_category','description'];
+    protected $fillable = [
+        'user_id',
+        'name',
+        'brand',
+        'category',
+        'price',
+        'stock',
+        'image_url',
+        'palette_category',
+        'description'
+    ];
+
+    protected $casts = [
+        'price' => 'decimal:2',
+        'stock' => 'integer',
+    ];
 
     public function user() {
         return $this->belongsTo(User::class);
@@ -17,6 +32,10 @@ class Product extends Model
 
     public function analysisHistories() {
         return $this->belongsToMany(AnalysisHistory::class, 'detail_rekomendasi');
+    }
+
+    public function palettes() {
+        return $this->hasMany(ProductPalette::class);
     }
 }
 

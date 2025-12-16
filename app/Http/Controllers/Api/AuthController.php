@@ -70,6 +70,33 @@ class AuthController extends Controller
         return response()->json(['user' => $req->user()]);
     }
 
+    // Admin login with role check
+    public function adminLogin(Request $req)
+    {
+        $req->validate(['email' => 'required|email', 'password' => 'required|string']);
+
+        $credentials = $req->only('email', 'password');
+
+        // Attempt to login via session
+        if (!Auth::attempt($credentials)) {
+            return response()->json(['message' => 'Email atau password admin salah!'], 401);
+        }
+
+        $user = Auth::user();
+
+        // Check if user is admin
+        if ($user->role !== 'admin') {
+            Auth::logout();
+            return response()->json(['message' => 'Anda bukan admin!'], 403);
+        }
+
+        // Regenerate session id to prevent fixation
+        $req->session()->regenerate();
+
+        // Return authenticated admin user
+        return response()->json(['user' => $user]);
+    }
+
     // Logout: invalidate session
     public function logout(Request $req)
     {
@@ -77,12 +104,18 @@ class AuthController extends Controller
         $req->session()->invalidate();
         $req->session()->regenerateToken();
 
-        return response()->json(['message' => 'Logged out']);
+        return response()->json(['message' => 'Logout successful']);
     }
 
     public function me(Request $req)
     {
-        return response()->json($req->user());
+        $user = $req->user();
+        return response()->json([
+            'id' => $user->id,
+            'full_name' => $user->name,
+            'email' => $user->email,
+            'role' => $user->role,
+        ]);
     }
 
     public function profile(Request $request)

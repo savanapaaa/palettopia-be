@@ -68,6 +68,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/products', [AdminController::class, 'products']);
         Route::post('/products', [AdminController::class, 'storeProduct']);
         Route::put('/products/{id}', [AdminController::class, 'updateProduct']);
+        Route::post('/products/{id}', [AdminController::class, 'updateProduct']); // Workaround FormData
         Route::delete('/products/{id}', [AdminController::class, 'destroyProduct']);
         Route::get('/analyses', [AdminController::class, 'analyses']);
     });

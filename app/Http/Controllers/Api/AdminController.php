@@ -74,12 +74,12 @@ class AdminController extends Controller
 
     /**
      * GET /api/admin/products
-     * List all products (admin view with pagination)
+     * List all products (admin view with pagination & stats)
      */
     public function products(Request $request)
     {
         try {
-            $query = Product::with('user:id,name,email');
+            $query = Product::query();
 
             // Filter by palette category
             if ($request->has('palette_category')) {
@@ -91,12 +91,35 @@ class AdminController extends Controller
                 $query->where('name', 'like', '%' . $request->search . '%');
             }
 
-            $perPage = $request->get('per_page', 15);
+            $perPage = $request->get('per_page', 10);
             $products = $query->orderByDesc('created_at')->paginate($perPage);
+
+            // Transform products to include palettes array
+            $products->getCollection()->transform(function ($product) {
+                $palettes = [];
+                if ($product->palette_category) {
+                    $palettes[] = [
+                        'id' => null, // Temporary, nanti pakai pivot table
+                        'palette_name' => $product->palette_category
+                    ];
+                }
+                
+                $product->palettes = $palettes;
+                return $product;
+            });
+
+            // Calculate stats
+            $stats = [
+                'total_products' => Product::count(),
+                'total_stock' => Product::sum('stock'),
+                'total_categories' => Product::distinct('category')->count('category'),
+                'total_palettes' => Product::distinct('palette_category')->count('palette_category'),
+            ];
 
             return response()->json([
                 'success' => true,
                 'data' => $products,
+                'stats' => $stats,
             ]);
         } catch (\Exception $e) {
             Log::error('Admin products list error: ' . $e->getMessage());
@@ -116,27 +139,52 @@ class AdminController extends Controller
         try {
             $validated = $request->validate([
                 'name' => 'required|string|max:255',
+                'brand' => 'nullable|string|max:255',
+                'category' => 'required|string|max:100',
+                'price' => 'required|numeric|min:0',
+                'stock' => 'required|integer|min:0',
                 'description' => 'nullable|string',
-                'palette_category' => 'required|' . PaletteTypes::validationRule(),
+                'palettes' => 'required|array|min:1',
+                'palettes.*' => 'required|' . PaletteTypes::validationRule(),
                 'image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:10240',
-                'image_url' => 'nullable|string',
             ]);
 
             // Handle image upload if provided
             if ($request->hasFile('image')) {
                 $image = $request->file('image');
-                $filename = uniqid() . '.' . $image->getClientOriginalExtension();
+                $filename = time() . '_' . $image->getClientOriginalName();
                 $path = $image->storeAs('products', $filename, 'public');
                 $validated['image_url'] = '/storage/' . $path;
             }
 
             $validated['user_id'] = auth()->id();
+            $validated['palette_category'] = $validated['palettes'][0]; // Fallback untuk kolom lama
+
+            // Extract palettes array before creating product
+            $palettes = $validated['palettes'];
+            unset($validated['palettes']);
 
             $product = Product::create($validated);
 
+            // Insert palettes ke product_palettes table
+            foreach ($palettes as $paletteName) {
+                $product->palettes()->create(['palette_name' => $paletteName]);
+            }
+
+            // Load palettes relationship untuk response
+            $product->load('palettes');
+
+            // Transform palettes untuk response
+            $product->palettes = $product->palettes->map(function($palette) {
+                return [
+                    'id' => $palette->id,
+                    'palette_name' => $palette->palette_name
+                ];
+            });
+
             return response()->json([
                 'success' => true,
-                'message' => 'Product created successfully',
+                'message' => 'Produk berhasil ditambahkan',
                 'data' => $product,
             ], 201);
         } catch (\Illuminate\Validation\ValidationException $e) {
@@ -165,10 +213,14 @@ class AdminController extends Controller
 
             $validated = $request->validate([
                 'name' => 'sometimes|required|string|max:255',
+                'brand' => 'nullable|string|max:255',
+                'category' => 'sometimes|required|string|max:100',
+                'price' => 'sometimes|required|numeric|min:0',
+                'stock' => 'sometimes|required|integer|min:0',
                 'description' => 'nullable|string',
-                'palette_category' => 'sometimes|required|' . PaletteTypes::validationRule(),
+                'palettes' => 'sometimes|required|array|min:1',
+                'palettes.*' => 'required|' . PaletteTypes::validationRule(),
                 'image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:10240',
-                'image_url' => 'nullable|string',
             ]);
 
             // Handle image upload if provided
@@ -180,17 +232,41 @@ class AdminController extends Controller
                 }
 
                 $image = $request->file('image');
-                $filename = uniqid() . '.' . $image->getClientOriginalExtension();
+                $filename = time() . '_' . $image->getClientOriginalName();
                 $path = $image->storeAs('products', $filename, 'public');
                 $validated['image_url'] = '/storage/' . $path;
             }
 
+            // Update palettes jika dikirim
+            if (isset($validated['palettes'])) {
+                $palettes = $validated['palettes'];
+                $validated['palette_category'] = $palettes[0]; // Update fallback column
+                unset($validated['palettes']);
+
+                // Hapus palettes lama
+                $product->palettes()->delete();
+
+                // Insert palettes baru
+                foreach ($palettes as $paletteName) {
+                    $product->palettes()->create(['palette_name' => $paletteName]);
+                }
+            }
+
             $product->update($validated);
+
+            // Load palettes untuk response
+            $product->load('palettes');
+            $product->palettes = $product->palettes->map(function($palette) {
+                return [
+                    'id' => $palette->id,
+                    'palette_name' => $palette->palette_name
+                ];
+            });
 
             return response()->json([
                 'success' => true,
-                'message' => 'Product updated successfully',
-                'data' => $product->fresh(),
+                'message' => 'Produk berhasil diperbarui',
+                'data' => $product->fresh(['palettes']),
             ]);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
@@ -200,7 +276,7 @@ class AdminController extends Controller
         } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Validation failed',
+                'message' => 'Validasi gagal',
                 'errors' => $e->errors(),
             ], 422);
         } catch (\Exception $e) {
@@ -227,11 +303,14 @@ class AdminController extends Controller
                 Storage::disk('public')->delete($path);
             }
 
+            // Delete palettes (cascade akan handle otomatis karena onDelete('cascade'))
+            $product->palettes()->delete();
+
             $product->delete();
 
             return response()->json([
                 'success' => true,
-                'message' => 'Product deleted successfully',
+                'message' => 'Produk berhasil dihapus',
             ]);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
