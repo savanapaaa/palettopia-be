@@ -37,7 +37,7 @@ class AdminController extends Controller
     {
         try {
             $stats = [
-                'total_users' => User::where('role', 'user')->count(),
+                'total_users' => User::where('role', '!=', 'admin')->count(),
                 'total_admins' => User::where('role', 'admin')->count(),
                 'total_products' => Product::count(),
                 'total_analyses' => AnalysisHistory::count(),
