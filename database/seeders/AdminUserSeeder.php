@@ -11,12 +11,12 @@ class AdminUserSeeder extends Seeder
     public function run(): void
     {
         \App\Models\User::firstOrCreate(
-            ['email' => 'admin@palettopia.com'],
+            ['email' => 'mingyu@palettopia.com'],
             [
                 'name' => 'Admin Palettopia',
                 'phone' => '081234567890',
                 'role' => 'admin',
-                'password' => bcrypt('admin123'),
+                'password' => bcrypt('mingyu123'),
             ]
         );
     }
